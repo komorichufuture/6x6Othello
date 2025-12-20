@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>6×6 オセロ（Vanilla JS / CPU 弱・中・強 修正版）</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --accent:#9aa7ff;
+      --good:#6ee7b7;
+      --warn:#fbbf24;
+      --bad:#fb7185;
+      --text:#e5e7eb;
+      --muted:#9ca3af;
+
+      --cell: 68px;
+      --gap: 8px;
+      --radius: 14px;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 20% 10%, rgba(154,167,255,.18), transparent 60%),
+        radial-gradient(900px 500px at 80% 20%, rgba(110,231,183,.10), transparent 60%),
+        linear-gradient(180deg, #070a14, var(--bg));
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 18px;
+    }
+    .wrap{ width:min(980px, 100%); display:grid; grid-template-columns: 1fr; gap: 14px; }
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+      border: 1px solid rgba(154,167,255,.18);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      overflow:hidden;
+    }
+    header{
+      padding: 14px 16px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap: 12px;
+      border-bottom: 1px solid rgba(154,167,255,.14);
+      background: rgba(18,26,51,.55);
+      backdrop-filter: blur(8px);
+      flex-wrap:wrap;
+    }
+    .title{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+    .title h1{ font-size: 16px; margin:0; letter-spacing:.02em; }
+    .title .sub{ font-size: 12px; color: var(--muted); }
+
+    .bar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+    button, select{
+      appearance:none;
+      border: 1px solid rgba(154,167,255,.25);
+      background: rgba(18,26,51,.65);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      cursor:pointer;
+      transition: transform .06s ease, border-color .18s ease, background .18s ease;
+      user-select:none;
+    }
+    select{ cursor:pointer; }
+    button:hover, select:hover{
+      border-color: rgba(154,167,255,.55);
+      background: rgba(18,26,51,.85);
+    }
+    button:active{ transform: translateY(1px); }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+
+    .content{ padding: 16px; display:grid; grid-template-columns: 1fr; gap: 14px; }
+    @media (min-width: 860px){
+      .content{ grid-template-columns: auto 1fr; align-items:start; }
+    }
+
+    .board{
+      display:grid;
+      grid-template-columns: repeat(6, var(--cell));
+      gap: var(--gap);
+      padding: 14px;
+      background: rgba(18,26,51,.45);
+      border: 1px solid rgba(154,167,255,.14);
+      border-radius: var(--radius);
+      width: fit-content;
+      user-select:none;
+    }
+    .cell{
+      width: var(--cell);
+      height: var(--cell);
+      background: radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.12), rgba(255,255,255,.02));
+      border: 1px solid rgba(154,167,255,.12);
+      border-radius: 14px;
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      outline:none;
+      transition: border-color .14s ease, transform .06s ease;
+    }
+    .cell:hover{ border-color: rgba(154,167,255,.35); }
+    .cell:active{ transform: translateY(1px); }
+    .cell.legal::after{
+      content:"";
+      position:absolute;
+      width: 12px; height: 12px;
+      border-radius:999px;
+      background: rgba(110,231,183,.75);
+      box-shadow: 0 0 0 6px rgba(110,231,183,.12), 0 0 18px rgba(110,231,183,.35);
+    }
+
+    .disc{
+      width: 82%;
+      height: 82%;
+      border-radius: 999px;
+      box-shadow:
+        inset 0 8px 14px rgba(255,255,255,.10),
+        inset 0 -10px 18px rgba(0,0,0,.45),
+        0 10px 20px rgba(0,0,0,.35);
+    }
+    .disc.black{
+      background: radial-gradient(80px 80px at 30% 25%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%),
+                  radial-gradient(140px 140px at 60% 70%, rgba(255,255,255,.06), rgba(0,0,0,.0) 60%),
+                  linear-gradient(180deg, #121826, #05070e);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .disc.white{
+      background: radial-gradient(80px 80px at 30% 25%, rgba(255,255,255,.9), rgba(255,255,255,0) 55%),
+                  radial-gradient(160px 160px at 60% 70%, rgba(0,0,0,.06), rgba(0,0,0,0) 65%),
+                  linear-gradient(180deg, #f3f4f6, #cfd6e1);
+      border: 1px solid rgba(0,0,0,.10);
+    }
+
+    .side{ display:grid; gap: 12px; }
+    .panel{
+      background: rgba(18,26,51,.45);
+      border: 1px solid rgba(154,167,255,.14);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+    .status{ display:flex; align-items:center; justify-content:space-between; gap: 10px; flex-wrap:wrap; }
+    .turn{ display:flex; align-items:center; gap: 10px; flex-wrap:wrap; }
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding: 8px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(154,167,255,.18);
+      background: rgba(18,26,51,.55);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .dot{
+      width: 10px; height: 10px; border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px rgba(154,167,255,.12);
+    }
+    .dot.black{ background: #a3a3a3; box-shadow: 0 0 0 5px rgba(163,163,163,.12); }
+    .dot.white{ background: #f3f4f6; box-shadow: 0 0 0 5px rgba(243,244,246,.10); }
+
+    .scores{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 10px; }
+    .score{
+      flex: 1; min-width: 160px;
+      display:flex; align-items:center; justify-content:space-between; gap: 10px;
+      padding: 10px 12px; border-radius: 14px;
+      border: 1px solid rgba(154,167,255,.12);
+      background: rgba(0,0,0,.12);
+    }
+    .score .label{ display:flex; align-items:center; gap: 10px; color: var(--muted); font-size: 13px; }
+    .score .value{ font-weight: 700; font-size: 16px; letter-spacing: .02em; }
+
+    .log{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Noto Sans Mono CJK JP", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: rgba(229,231,235,.92);
+      white-space: pre-wrap;
+      margin:0;
+    }
+    .hint{ color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.6; }
+    .msg{ margin: 10px 0 0; font-size: 13px; color: var(--text); }
+    .msg strong{ color: var(--good); }
+    .msg.warn strong{ color: var(--warn); }
+    .msg.bad strong{ color: var(--bad); }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top: 10px; }
+    .k{ color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <header>
+        <div class="title">
+          <h1>6×6 オセロ</h1>
+          <div class="sub">人 vs 人 / CPU（弱・中・強=ミニマックス）【パス修正版】</div>
+        </div>
+        <div class="bar">
+          <select id="modeSelect" title="対戦モード">
+            <option value="pvp">人 vs 人</option>
+            <option value="cpu_easy">人（黒） vs CPU（白 / 弱）</option>
+            <option value="cpu_mid">人（黒） vs CPU（白 / 中）</option>
+            <option value="cpu_strong">人（黒） vs CPU（白 / 強）</option>
+          </select>
+
+          <select id="depthSelect" title="強CPUの探索深さ（強モードのみ有効）">
+            <option value="1">強CPU 深さ1（速い）</option>
+            <option value="2" selected>強CPU 深さ2（おすすめ）</option>
+          </select>
+
+          <button id="btnToggleHints" title="合法手の点を表示/非表示">合法手: ON</button>
+          <button id="btnPass" title="置けないときだけ押せます">パス</button>
+          <button id="btnReset" title="最初から">リセット</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <div>
+          <div id="board" class="board" aria-label="othello board"></div>
+        </div>
+
+        <div class="side">
+          <div class="panel">
+            <div class="status">
+              <div class="turn">
+                <span class="badge"><span class="dot" id="turnDot"></span><span id="turnText">手番</span></span>
+                <span class="badge">サイズ: 6×6</span>
+              </div>
+              <span class="badge" id="legalCountBadge">合法手: 0</span>
+            </div>
+
+            <div class="scores">
+              <div class="score">
+                <div class="label"><span class="dot black"></span>黒</div>
+                <div class="value" id="blackCount">0</div>
+              </div>
+              <div class="score">
+                <div class="label"><span class="dot white"></span>白</div>
+                <div class="value" id="whiteCount">0</div>
+              </div>
+            </div>
+
+            <div class="row">
+              <span class="badge" id="playerBadge">プレイヤー: 黒=人 / 白=人</span>
+              <span class="k" id="cpuNote"></span>
+            </div>
+
+            <p class="msg" id="message"></p>
+            <div class="hint">
+              CPUは白固定、あなたは黒。<br>
+              強CPUはミニマックス（深さ1〜2）＋評価（角/辺/合法手/石差）。<br>
+              ✅ パスボタンは「人間の番で、合法手が0」のとき必ず押せるように修正済み。
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="badge">ログ</div>
+            <pre id="log" class="log"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      "use strict";
+
+      const SIZE = 6;
+      const EMPTY = 0, BLACK = 1, WHITE = -1;
+
+      const DIRS = [
+        [-1,-1], [-1,0], [-1,1],
+        [ 0,-1],         [ 0,1],
+        [ 1,-1], [ 1,0], [ 1,1],
+      ];
+
+      function isCorner(r,c){
+        return ( (r===0 || r===SIZE-1) && (c===0 || c===SIZE-1) );
+      }
+      function isEdge(r,c){
+        return (r===0 || r===SIZE-1 || c===0 || c===SIZE-1) && !isCorner(r,c);
+      }
+
+      // mode: "pvp" | "cpu_easy" | "cpu_mid" | "cpu_strong"
+      let mode = "pvp";
+      let strongDepth = 2;
+
+      let board = createBoard();
+      let current = BLACK;
+      let showHints = true;
+      let ended = false;
+      let cpuThinking = false;
+
+      const elBoard = document.getElementById("board");
+      const elBlack = document.getElementById("blackCount");
+      const elWhite = document.getElementById("whiteCount");
+      const elTurnText = document.getElementById("turnText");
+      const elTurnDot = document.getElementById("turnDot");
+      const elLegalCount = document.getElementById("legalCountBadge");
+      const elMsg = document.getElementById("message");
+      const elLog = document.getElementById("log");
+
+      const btnReset = document.getElementById("btnReset");
+      const btnPass = document.getElementById("btnPass");
+      const btnToggleHints = document.getElementById("btnToggleHints");
+      const modeSelect = document.getElementById("modeSelect");
+      const depthSelect = document.getElementById("depthSelect");
+
+      const playerBadge = document.getElementById("playerBadge");
+      const cpuNote = document.getElementById("cpuNote");
+
+      // ---- init UI board ----
+      const cells = [];
+      for(let r=0; r<SIZE; r++){
+        for(let c=0; c<SIZE; c++){
+          const cell = document.createElement("button");
+          cell.className = "cell";
+          cell.type = "button";
+          cell.dataset.r = String(r);
+          cell.dataset.c = String(c);
+          cell.addEventListener("click", onCellClick);
+          elBoard.appendChild(cell);
+          cells.push(cell);
+        }
+      }
+
+      btnReset.addEventListener("click", resetGame);
+      btnPass.addEventListener("click", doPass);
+      btnToggleHints.addEventListener("click", toggleHints);
+
+      modeSelect.addEventListener("change", () => {
+        mode = modeSelect.value;
+        applyModeUI();
+        resetGame();
+      });
+
+      depthSelect.addEventListener("change", () => {
+        strongDepth = Number(depthSelect.value);
+        applyModeUI();
+      });
+
+      resetGame();
+
+      function applyModeUI(){
+        const strong = (mode === "cpu_strong");
+        depthSelect.disabled = !strong;
+        depthSelect.style.opacity = strong ? 1 : 0.5;
+
+        if(mode === "pvp"){
+          playerBadge.textContent = "プレイヤー: 黒=人 / 白=人";
+          cpuNote.textContent = "";
+        } else if(mode === "cpu_easy"){
+          playerBadge.textContent = "プレイヤー: 黒=人 / 白=CPU";
+          cpuNote.textContent = "CPU: 弱（ランダム）";
+        } else if(mode === "cpu_mid"){
+          playerBadge.textContent = "プレイヤー: 黒=人 / 白=CPU";
+          cpuNote.textContent = "CPU: 中（反転枚数最大）";
+        } else {
+          playerBadge.textContent = "プレイヤー: 黒=人 / 白=CPU";
+          cpuNote.textContent = `CPU: 強（ミニマックス 深さ${strongDepth}）`;
+        }
+      }
+
+      // ---- game ----
+      function createBoard(){
+        const b = Array.from({length: SIZE}, () => Array(SIZE).fill(EMPTY));
+        b[2][2] = WHITE;
+        b[2][3] = BLACK;
+        b[3][2] = BLACK;
+        b[3][3] = WHITE;
+        return b;
+      }
+
+      function resetGame(){
+        board = createBoard();
+        current = BLACK;
+        ended = false;
+        cpuThinking = false;
+
+        logLine(`=== New Game (6x6) mode=${mode} depth=${strongDepth} ===`);
+        applyModeUI();
+        updateAll(true);
+        maybeCpuTurn();
+      }
+
+      function toggleHints(){
+        showHints = !showHints;
+        btnToggleHints.textContent = `合法手: ${showHints ? "ON" : "OFF"}`;
+        updateAll(false);
+      }
+
+      function onCellClick(e){
+        if(ended || cpuThinking) return;
+        if(isCpuTurn()) return;
+
+        const r = Number(e.currentTarget.dataset.r);
+        const c = Number(e.currentTarget.dataset.c);
+        humanPlay(r,c);
+      }
+
+      function humanPlay(r,c){
+        const flips = getFlips(board, r, c, current);
+        if(flips.length === 0){
+          flashMessage("そこは置けない。緑の点を狙え。", "warn");
+          return;
+        }
+        doMove(board, {r,c}, current);
+        maybeCpuTurn();
+      }
+
+      function isCpuTurn(){
+        // CPUは白固定
+        if(mode === "pvp") return false;
+        return current === WHITE;
+      }
+
+      // ★ 修正の核：パス可否は「人間の番」かどうかで判断する
+      function isHumanTurn(){
+        return !ended && !cpuThinking && !isCpuTurn();
+      }
+
+      function doPass(){
+        if(ended || cpuThinking) return;
+
+        if(!isHumanTurn()){
+          flashMessage("今は人間の番じゃない。", "warn");
+          return;
+        }
+
+        const movesNow = getAllLegalMoves(board, current);
+        if(movesNow.length > 0){
+          flashMessage("置けるのにパスはできない（甘えは禁止）。", "bad");
+          return;
+        }
+
+        logLine(`${colorName(current)}: PASS`);
+        current = -current;
+        updateAll(true);
+        maybeCpuTurn();
+      }
+
+      function doMove(b, move, player){
+        const flips = getFlips(b, move.r, move.c, player);
+        if(flips.length === 0) return false;
+
+        b[move.r][move.c] = player;
+        for(const [fr,fc] of flips) b[fr][fc] = player;
+
+        logLine(`${colorName(player)}: (${move.r+1},${move.c+1}) 反転${flips.length}`);
+        current = -player;
+        updateAll(true);
+        return true;
+      }
+
+      function maybeCpuTurn(){
+        if(ended) return;
+        if(mode === "pvp") return;
+        if(!isCpuTurn()) return;
+
+        const cpuMoves = getAllLegalMoves(board, current);
+        if(cpuMoves.length === 0){
+          // CPUは自動パス
+          logLine(`${colorName(current)}: PASS (auto)`);
+          current = -current;
+          updateAll(true);
+          // ここで人間側が置けない場合、ボタンが必ず有効になる（修正済み）
+          return;
+        }
+
+        cpuThinking = true;
+        flashMessage("CPU思考中…（今回はちょっと考える）", "ok");
+        updateAll(false);
+
+        setTimeout(() => {
+          if(ended){ cpuThinking = false; return; }
+
+          let chosen;
+          if(mode === "cpu_easy") chosen = chooseCpuEasy(cpuMoves);
+          else if(mode === "cpu_mid") chosen = chooseCpuMid(cpuMoves);
+          else chosen = chooseCpuStrong(board, current, strongDepth);
+
+          if(!chosen){
+            cpuThinking = false;
+            updateAll(true);
+            return;
+          }
+
+          doMove(board, chosen, current); // current は CPU(WHITE)
+          cpuThinking = false;
+          // 次は人間へ
+          updateAll(true);
+        }, 520);
+      }
+
+      // ---- CPU policies ----
+      function chooseCpuEasy(moves){
+        const idx = Math.floor(Math.random()*moves.length);
+        return {r:moves[idx].r, c:moves[idx].c};
+      }
+
+      function chooseCpuMid(moves){
+        let best = [];
+        let bestScore = -1;
+        for(const m of moves){
+          if(m.flipsCount > bestScore){
+            bestScore = m.flipsCount;
+            best = [m];
+          } else if(m.flipsCount === bestScore){
+            best.push(m);
+          }
+        }
+        const pick = best[Math.floor(Math.random()*best.length)];
+        return {r:pick.r, c:pick.c};
+      }
+
+      // Strong: minimax (depth 1-2) with simple evaluation
+      function chooseCpuStrong(rootBoard, cpuPlayer, depth){
+        const moves = getAllLegalMoves(rootBoard, cpuPlayer);
+        if(moves.length === 0) return null;
+
+        // move ordering: corners first, then higher flipsCount
+        moves.sort((a,b) => {
+          const ac = isCorner(a.r,a.c) ? 1 : 0;
+          const bc = isCorner(b.r,b.c) ? 1 : 0;
+          if(ac !== bc) return bc - ac;
+          return b.flipsCount - a.flipsCount;
+        });
+
+        let bestScore = -Infinity;
+        let bestMoves = [];
+
+        for(const m of moves){
+          const b2 = cloneBoard(rootBoard);
+          applyMove(b2, m.r, m.c, cpuPlayer);
+
+          // after cpu move, opponent to play
+          const score = minimax(b2, -cpuPlayer, cpuPlayer, depth-1, -Infinity, Infinity);
+
+          if(score > bestScore){
+            bestScore = score;
+            bestMoves = [{r:m.r, c:m.c}];
+          } else if(score === bestScore){
+            bestMoves.push({r:m.r, c:m.c});
+          }
+        }
+
+        return bestMoves[Math.floor(Math.random()*bestMoves.length)];
+      }
+
+      // minimax returns evaluation from cpuPlayer's perspective
+      function minimax(b, playerToMove, cpuPlayer, depth, alpha, beta){
+        const cpuMoves = getAllLegalMoves(b, cpuPlayer);
+        const oppMoves = getAllLegalMoves(b, -cpuPlayer);
+        const noOneCanMove = (cpuMoves.length === 0 && oppMoves.length === 0);
+        if(depth <= 0 || noOneCanMove){
+          return evaluateBoard(b, cpuPlayer);
+        }
+
+        const moves = getAllLegalMoves(b, playerToMove);
+
+        // pass handling
+        if(moves.length === 0){
+          return minimax(b, -playerToMove, cpuPlayer, depth-1, alpha, beta);
+        }
+
+        moves.sort((a,b2) => {
+          const ac = isCorner(a.r,a.c) ? 1 : 0;
+          const bc = isCorner(b2.r,b2.c) ? 1 : 0;
+          if(ac !== bc) return bc - ac;
+          return b2.flipsCount - a.flipsCount;
+        });
+
+        const maximizing = (playerToMove === cpuPlayer);
+
+        if(maximizing){
+          let value = -Infinity;
+          for(const m of moves){
+            const next = cloneBoard(b);
+            applyMove(next, m.r, m.c, playerToMove);
+            const child = minimax(next, -playerToMove, cpuPlayer, depth-1, alpha, beta);
+            value = Math.max(value, child);
+            alpha = Math.max(alpha, value);
+            if(beta <= alpha) break;
+          }
+          return value;
+        } else {
+          let value = Infinity;
+          for(const m of moves){
+            const next = cloneBoard(b);
+            applyMove(next, m.r, m.c, playerToMove);
+            const child = minimax(next, -playerToMove, cpuPlayer, depth-1, alpha, beta);
+            value = Math.min(value, child);
+            beta = Math.min(beta, value);
+            if(beta <= alpha) break;
+          }
+          return value;
+        }
+      }
+
+      function evaluateBoard(b, cpuPlayer){
+        let disc = 0;
+        let corner = 0;
+        let edge = 0;
+
+        for(let r=0; r<SIZE; r++){
+          for(let c=0; c<SIZE; c++){
+            const v = b[r][c];
+            if(v === EMPTY) continue;
+
+            disc += (v === cpuPlayer) ? 1 : -1;
+
+            if(isCorner(r,c)){
+              corner += (v === cpuPlayer) ? 1 : -1;
+            } else if(isEdge(r,c)){
+              edge += (v === cpuPlayer) ? 1 : -1;
+            }
+          }
+        }
+
+        const cpuMoves = getAllLegalMoves(b, cpuPlayer).length;
+        const oppMoves = getAllLegalMoves(b, -cpuPlayer).length;
+        const mobility = (cpuMoves - oppMoves);
+
+        return disc * 2 + corner * 30 + edge * 6 + mobility * 3;
+      }
+
+      // ---- core board ops ----
+      function cloneBoard(b){
+        return b.map(row => row.slice());
+      }
+
+      function applyMove(b, r, c, player){
+        const flips = getFlips(b, r, c, player);
+        b[r][c] = player;
+        for(const [fr,fc] of flips) b[fr][fc] = player;
+      }
+
+      function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+
+      function getFlips(b, r, c, player){
+        if(!inBounds(r,c) || b[r][c] !== EMPTY) return [];
+        const out = [];
+        for(const [dr, dc] of DIRS){
+          const line = [];
+          let rr = r + dr;
+          let cc = c + dc;
+          while(inBounds(rr,cc) && b[rr][cc] === -player){
+            line.push([rr,cc]);
+            rr += dr; cc += dc;
+          }
+          if(line.length > 0 && inBounds(rr,cc) && b[rr][cc] === player){
+            out.push(...line);
+          }
+        }
+        return out;
+      }
+
+      function getAllLegalMoves(b, player){
+        const moves = [];
+        for(let r=0; r<SIZE; r++){
+          for(let c=0; c<SIZE; c++){
+            if(b[r][c] !== EMPTY) continue;
+            const flips = getFlips(b, r, c, player);
+            if(flips.length > 0) moves.push({r,c, flipsCount: flips.length});
+          }
+        }
+        return moves;
+      }
+
+      function countDiscs(b){
+        let black = 0, white = 0;
+        for(let r=0; r<SIZE; r++){
+          for(let c=0; c<SIZE; c++){
+            if(b[r][c] === BLACK) black++;
+            else if(b[r][c] === WHITE) white++;
+          }
+        }
+        return {black, white};
+      }
+
+      // ---- render / end check ----
+      function updateAll(recomputeMessage){
+        // render discs
+        for(let r=0; r<SIZE; r++){
+          for(let c=0; c<SIZE; c++){
+            const idx = r*SIZE + c;
+            const cell = cells[idx];
+            cell.classList.remove("legal");
+            cell.innerHTML = "";
+
+            const v = board[r][c];
+            if(v === BLACK){
+              const d = document.createElement("div");
+              d.className = "disc black";
+              cell.appendChild(d);
+            } else if(v === WHITE){
+              const d = document.createElement("div");
+              d.className = "disc white";
+              cell.appendChild(d);
+            }
+          }
+        }
+
+        const moves = getAllLegalMoves(board, current);
+        if(showHints){
+          for(const m of moves){
+            cells[m.r*SIZE + m.c].classList.add("legal");
+          }
+        }
+
+        const {black, white} = countDiscs(board);
+        elBlack.textContent = String(black);
+        elWhite.textContent = String(white);
+
+        elTurnText.textContent = ended ? "終了" : `${colorName(current)}の番`;
+        elTurnDot.className = "dot " + (current===BLACK ? "black" : "white");
+        elLegalCount.textContent = `合法手: ${moves.length}`;
+
+        // ✅ 修正：人間の番で、人間の合法手が0なら必ずパス可能
+        if(isHumanTurn()){
+          const humanMoves = getAllLegalMoves(board, current);
+          btnPass.disabled = !(humanMoves.length === 0);
+        } else {
+          btnPass.disabled = true;
+        }
+
+        // end by full board
+        if(!ended && (black + white) === SIZE*SIZE){
+          endGame("盤面が埋まったため終了。");
+          return;
+        }
+
+        // end by no moves for both
+        if(!ended){
+          const curMoves = getAllLegalMoves(board, current).length;
+          const oppMoves = getAllLegalMoves(board, -current).length;
+          if(curMoves === 0 && oppMoves === 0){
+            endGame("両者とも置けないため終了。");
+            return;
+          }
+        }
+
+        if(recomputeMessage && !ended && !cpuThinking){
+          if(moves.length === 0){
+            if(isCpuTurn()) flashMessage("CPUの番（置けないなら自動でパスする）", "warn");
+            else flashMessage(`${colorName(current)}は置けない。パスしてね。`, "warn");
+          } else {
+            if(isCpuTurn()) flashMessage("CPUの番。", "ok");
+            else flashMessage(`${colorName(current)}の番。`, "ok");
+          }
+        }
+      }
+
+      function endGame(reason){
+        ended = true;
+        cpuThinking = false;
+
+        const {black, white} = countDiscs(board);
+        let result = "引き分け";
+        if(black > white) result = "黒の勝ち";
+        if(white > black) result = "白の勝ち";
+
+        logLine(`=== Game Over: ${result} (黒${black} / 白${white}) ===`);
+        flashMessage(`${reason} 結果：${result}（黒${black} / 白${white}）`, "ok");
+        updateAll(false);
+      }
+
+      function colorName(v){ return v === BLACK ? "黒" : "白"; }
+
+      function flashMessage(text, kind){
+        elMsg.textContent = "";
+        elMsg.className = "msg" + (kind ? (" " + kind) : "");
+        const strong = document.createElement("strong");
+        strong.textContent = (kind === "warn") ? "注意: " :
+                             (kind === "bad")  ? "NG: " : "OK: ";
+        elMsg.appendChild(strong);
+        elMsg.appendChild(document.createTextNode(text));
+      }
+
+      function logLine(line){
+        const t = new Date();
+        const hh = String(t.getHours()).padStart(2,"0");
+        const mm = String(t.getMinutes()).padStart(2,"0");
+        const ss = String(t.getSeconds()).padStart(2,"0");
+        elLog.textContent = `[${hh}:${mm}:${ss}] ${line}\n` + elLog.textContent;
+      }
+    })();
+  </script>
+</body>
+</html>
