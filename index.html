@@ -15,8 +15,9 @@
       --text:#e5e7eb;
       --muted:#9ca3af;
 
-      --cell: 68px;
-      --gap: 8px;
+      --gap: clamp(4px, 1.6vw, 8px);
+      /* 6 cells + 5 gaps + board padding(14px*2=28px) fits within ~92vw on phones */
+      --cell: clamp(40px, calc((min(92vw, 520px) - (5 * var(--gap)) - 28px) / 6), 68px);
       --radius: 14px;
     }
     *{ box-sizing:border-box; }
@@ -32,8 +33,7 @@
       display:flex;
       align-items:center;
       justify-content:center;
-      padding: 18px;
-    }
+      padding: clamp(10px, 2.6vw, 18px);}
     .wrap{ width:min(980px, 100%); display:grid; grid-template-columns: 1fr; gap: 14px; }
     .card{
       background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
@@ -79,7 +79,24 @@
     button:disabled{ opacity:.5; cursor:not-allowed; }
 
     .content{ padding: 16px; display:grid; grid-template-columns: 1fr; gap: 14px; }
-    @media (min-width: 860px){
+    
+    /* --- Mobile tweaks --- */
+    @media (max-width: 520px){
+      header{ padding: 12px 12px; }
+      .content{ padding: 12px; }
+      button, select{
+        padding: 9px 10px;
+        font-size: 12px;
+        border-radius: 11px;
+      }
+      .title h1{ font-size: 15px; }
+      .title .sub{ font-size: 11px; }
+      .board{ padding: 12px; }
+      .cell{ border-radius: 12px; }
+      .disc{ width: 84%; height: 84%; }
+    }
+
+@media (min-width: 860px){
       .content{ grid-template-columns: auto 1fr; align-items:start; }
     }
 
@@ -95,6 +112,7 @@
       user-select:none;
     }
     .cell{
+      touch-action: manipulation;
       width: var(--cell);
       height: var(--cell);
       background: radial-gradient(120px 120px at 30% 20%, rgba(255,255,255,.12), rgba(255,255,255,.02));
@@ -139,6 +157,18 @@
                   radial-gradient(160px 160px at 60% 70%, rgba(0,0,0,.06), rgba(0,0,0,0) 65%),
                   linear-gradient(180deg, #f3f4f6, #cfd6e1);
       border: 1px solid rgba(0,0,0,.10);
+    }
+
+    .disc.yellow{
+      background: radial-gradient(80px 80px at 30% 25%, rgba(255,255,255,.65), rgba(255,255,255,0) 55%),
+                  radial-gradient(160px 160px at 60% 70%, rgba(0,0,0,.10), rgba(0,0,0,0) 65%),
+                  linear-gradient(180deg, #fde68a, #f59e0b);
+      border: 1px solid rgba(0,0,0,.18);
+      box-shadow:
+        inset 0 8px 14px rgba(255,255,255,.18),
+        inset 0 -10px 18px rgba(0,0,0,.35),
+        0 10px 20px rgba(0,0,0,.35),
+        0 0 22px rgba(251,191,36,.25);
     }
 
     .side{ display:grid; gap: 12px; }
@@ -256,6 +286,15 @@
             </div>
 
             <p class="msg" id="message"></p>
+
+            <div class="row" style="margin-top:12px;">
+              <span class="k" style="font-size:20px; font-weight:bold; color:#e63946; letter-spacing:0.05em;">「あなたは最後までガマンできるか？」</span>
+            </div>
+            <div class="row" style="margin-top:8px;">
+              <button id="btnCheat" title="押したら最後。次の1手が黄色になって即勝利します。">🟡 黄色のコマ（インチキ）</button>
+              <span class="k" id="cheatNote"></span>
+            </div>
+
             <div class="hint">
               CPUは白固定、あなたは黒。<br>
               強CPUはミニマックス（深さ1〜2）＋評価（角/辺/合法手/石差）。<br>
@@ -277,7 +316,7 @@
       "use strict";
 
       const SIZE = 6;
-      const EMPTY = 0, BLACK = 1, WHITE = -1;
+      const EMPTY = 0, BLACK = 1, WHITE = -1, YELLOW = 2;
 
       const DIRS = [
         [-1,-1], [-1,0], [-1,1],
@@ -301,6 +340,9 @@
       let showHints = true;
       let ended = false;
       let cpuThinking = false;
+      let cheatArmed = false;
+      let cheatUsed = false;
+      let yellowOwner = BLACK;
 
       const elBoard = document.getElementById("board");
       const elBlack = document.getElementById("blackCount");
@@ -310,6 +352,9 @@
       const elLegalCount = document.getElementById("legalCountBadge");
       const elMsg = document.getElementById("message");
       const elLog = document.getElementById("log");
+
+      const btnCheat = document.getElementById("btnCheat");
+      const cheatNote = document.getElementById("cheatNote");
 
       const btnReset = document.getElementById("btnReset");
       const btnPass = document.getElementById("btnPass");
@@ -338,6 +383,7 @@
       btnReset.addEventListener("click", resetGame);
       btnPass.addEventListener("click", doPass);
       btnToggleHints.addEventListener("click", toggleHints);
+      btnCheat.addEventListener("click", armCheat);
 
       modeSelect.addEventListener("change", () => {
         mode = modeSelect.value;
@@ -370,6 +416,8 @@
           playerBadge.textContent = "プレイヤー: 黒=人 / 白=CPU";
           cpuNote.textContent = `CPU: 強（ミニマックス 深さ${strongDepth}）`;
         }
+
+        cheatNote.textContent = cheatUsed ? "（もう使った）" : (cheatArmed ? "（次の1手が黄色。即勝利）" : "（未使用）");
       }
 
       // ---- game ----
@@ -387,11 +435,36 @@
         current = BLACK;
         ended = false;
         cpuThinking = false;
+        cheatArmed = false;
+        cheatUsed = false;
+        yellowOwner = BLACK;
 
         logLine(`=== New Game (6x6) mode=${mode} depth=${strongDepth} ===`);
         applyModeUI();
         updateAll(true);
         maybeCpuTurn();
+      }
+
+      function armCheat(){
+        if(ended || cpuThinking){
+          flashMessage("もう勝負は動かない。", "warn");
+          return;
+        }
+        if(cheatUsed){
+          flashMessage("もう黄色は使った（後悔はない）。", "warn");
+          return;
+        }
+        if(isCpuTurn()){
+          flashMessage("CPUの番にズルはできない（せこい）。", "warn");
+          return;
+        }
+        cheatArmed = !cheatArmed;
+        updateAll(false);
+        if(cheatArmed){
+          flashMessage("🟡 黄色を選択した。次の1手で即勝利。（戻すならもう一回押す）", "warn");
+        } else {
+          flashMessage("黄色をやめた。まだ人間だ。", "ok");
+        }
       }
 
       function toggleHints(){
@@ -410,6 +483,10 @@
       }
 
       function humanPlay(r,c){
+        if(cheatArmed){
+          doCheatMove(r,c);
+          return;
+        }
         const flips = getFlips(board, r, c, current);
         if(flips.length === 0){
           flashMessage("そこは置けない。緑の点を狙え。", "warn");
@@ -461,6 +538,36 @@
         current = -player;
         updateAll(true);
         return true;
+      }
+
+      function doCheatMove(r,c){
+        if(ended || cpuThinking) return;
+        if(cheatUsed) return;
+
+        if(!inBounds(r,c) || board[r][c] !== EMPTY){
+          flashMessage("空マスに置け。黄色はさすがに雑すぎる。", "warn");
+          return;
+        }
+
+        // 盤面へ黄色を置く（表示用）
+        yellowOwner = current;
+        board[r][c] = YELLOW;
+
+        // 敵のコマを全部裏返す（合法手とか知らん）
+        for(let rr=0; rr<SIZE; rr++){
+          for(let cc=0; cc<SIZE; cc++){
+            if(board[rr][cc] === -current) board[rr][cc] = current;
+          }
+        }
+
+        cheatUsed = true;
+        cheatArmed = false;
+
+        logLine(`${colorName(current)}: CHEAT-YELLOW (${r+1},${c+1}) 全反転`);
+        updateAll(false);
+
+        // 勝利表示へ
+        endGame("🟡 黄色のコマで敵が全員寝返った。");
       }
 
       function maybeCpuTurn(){
@@ -684,6 +791,10 @@
           for(let c=0; c<SIZE; c++){
             if(b[r][c] === BLACK) black++;
             else if(b[r][c] === WHITE) white++;
+            else if(b[r][c] === YELLOW){
+              if(yellowOwner === BLACK) black++;
+              else if(yellowOwner === WHITE) white++;
+            }
           }
         }
         return {black, white};
@@ -707,6 +818,10 @@
             } else if(v === WHITE){
               const d = document.createElement("div");
               d.className = "disc white";
+              cell.appendChild(d);
+            } else if(v === YELLOW){
+              const d = document.createElement("div");
+              d.className = "disc yellow";
               cell.appendChild(d);
             }
           }
@@ -734,6 +849,10 @@
         } else {
           btnPass.disabled = true;
         }
+
+        // 🟡 インチキ（黄色）の可否
+        btnCheat.disabled = !(isHumanTurn() && !cheatUsed);
+        cheatNote.textContent = cheatUsed ? "（もう使った）" : (cheatArmed ? "（次の1手が黄色。即勝利）" : "（未使用）");
 
         // end by full board
         if(!ended && (black + white) === SIZE*SIZE){
@@ -799,4 +918,3 @@
   </script>
 </body>
 </html>
-
